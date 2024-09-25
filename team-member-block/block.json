@@ -1,0 +1,10 @@
+{
+	"name": "team-member-block/team-member-block",
+	"title": "Team Member",
+	"category": "widgets",
+	"description": "Present your team members beautifully & gain instant credibility",
+	"textdomain": "team-member-block",
+	"supports": {
+		"align": ["wide", "full"]
+	}
+}
