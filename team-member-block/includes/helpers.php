@@ -40,8 +40,28 @@ class Team_Member_Helper {
         /**
          * Only for admin add/edit pages/posts
          */
-        if ( $pagenow == 'post-new.php' || $pagenow == 'post.php' || $pagenow == 'site-editor.php' || ( $pagenow == 'themes.php' && ! empty( $_SERVER['QUERY_STRING'] ) && str_contains( $_SERVER['QUERY_STRING'], 'gutenberg-edit-site' ) ) ) {
-            $controls_dependencies = include_once TEAM_MEMBER_BLOCK_ADMIN_PATH . '/dist/modules.asset.php';
+        $query_string = isset( $_SERVER['QUERY_STRING'] ) ? sanitize_text_field( wp_unslash( $_SERVER['QUERY_STRING'] ) ) : '';
+
+        if ( $pagenow == 'post-new.php' || $pagenow == 'post.php' || $pagenow == 'site-editor.php' || ( $pagenow == 'themes.php' && ! empty( $query_string ) && false !== strpos( $query_string, 'gutenberg-edit-site' ) ) ) {
+            /**
+             * Must be `require`, not `include_once`: on a second call within the same
+             * request `include_once` returns bool(true) rather than the asset array,
+             * which makes the array access below a TypeError on PHP 8.
+             */
+            $controls_asset_path = TEAM_MEMBER_BLOCK_ADMIN_PATH . '/dist/modules.asset.php';
+            if ( ! file_exists( $controls_asset_path ) ) {
+                return;
+            }
+            $controls_dependencies = require $controls_asset_path;
+            if ( ! is_array( $controls_dependencies ) || ! isset( $controls_dependencies['dependencies'] ) || ! is_array( $controls_dependencies['dependencies'] ) ) {
+                $controls_dependencies = [
+                    'dependencies' => [],
+                    'version'      => TEAM_MEMBER_BLOCK_VERSION
+                ];
+            }
+            if ( ! isset( $controls_dependencies['version'] ) ) {
+                $controls_dependencies['version'] = TEAM_MEMBER_BLOCK_VERSION;
+            }
 
             wp_register_script(
                 "team-member-block-controls-util",
