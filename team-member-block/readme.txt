@@ -4,7 +4,7 @@ Tags: gutenberg, block, blocks, editor, team, member, team member, profile, gute
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.3.0
+Stable tag: 1.4.0
 License: GPLv3 or later
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 
@@ -87,6 +87,11 @@ Yes, it will work with any standard WordPress theme.
 
 
 == Changelog ==
+
+= 1.4.0 - 13/10/2026 =
+* Added: Copy Settings: copy one member's settings to another (all settings or design only)
+* Added: Apply one member's design to all Team Members on the page
+* Added: Default settings that new Team Members start with
 
 = 1.3.0 - 13/08/2026 =
 * Fixed: PHP 8.0 - 8.5 compatibility issues
