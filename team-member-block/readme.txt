@@ -1,10 +1,10 @@
 === Team Member Block ===
-Contributors: wpdevteam, re_enter_rupok, Asif2BD, hztyfoon, rahat89, fencermonir
+Contributors: wpdevteam, re_enter_rupok, Asif2BD, rahat89
 Tags: gutenberg, block, blocks, editor, team, member, team member, profile, gutenberg blocks
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.4.0
+Stable tag: 1.4.1
 License: GPLv3 or later
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 
@@ -63,6 +63,16 @@ Consider checking out our other WordPress solutions & boost your WordPress websi
 
 Visit [WPDeveloper](https://wpdeveloper.com/) to learn more about how to do better in WordPress with [Help Tutorial, Tips & Tricks](https://wpdeveloper.com/blog).
 
+== External services ==
+
+This plugin connects to Google Fonts to load the fonts you pick in a Team Member block's typography settings.
+
+* What it is used for: displaying the selected font on the front end of your site.
+* When data is sent: on every front-end page that contains a Team Member block whose typography uses any font family other than Default.
+* What is sent: the visitor's browser requests the stylesheet from fonts.googleapis.com and the font files from fonts.gstatic.com, so Google receives the visitor's IP address, user agent and the referring page, together with the requested font family names.
+
+The service is provided by Google: [Terms of Service](https://policies.google.com/terms), [Privacy Policy](https://policies.google.com/privacy).
+
 == Installation ==
 
 = Modern Way: =
@@ -87,6 +97,10 @@ Yes, it will work with any standard WordPress theme.
 
 
 == Changelog ==
+
+= 1.4.1 - 26/10/2026 =
+* Improved: Security enhancements
+* Few minor bug fixes & improvements
 
 = 1.4.0 - 13/10/2026 =
 * Added: Copy Settings: copy one member's settings to another (all settings or design only)

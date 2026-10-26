@@ -76,10 +76,20 @@ if ( ! class_exists( 'EbStyleHandlerParseCss' ) ) {
                     }
 
                     if ( isset( $attributes[ 'ref' ] ) && ! empty( $attributes[ 'ref' ] ) && $item[ "blockName" ] === "core/block" ) {
-                        $reusable_block                                        = get_post( $attributes[ 'ref' ] );
-                        $reusable_content                                      = ! empty( $reusable_block ) ? parse_blocks( $reusable_block->post_content ) : [  ];
-                        $reusable_blocks                                       = [  ];
-                        $eb_blocks[ "reusableBlocks" ][ $attributes[ 'ref' ] ] = self::eb_block_style_recursive( $reusable_content, $reusable_blocks );
+                        // `ref` comes from the saved block and can name any post ID.
+                        // Only a published reusable block (wp_block) is read: anything
+                        // else (another user's private post, a missing ID) is skipped,
+                        // so its CSS is never copied into a public file.
+                        $reusable_block = get_post( absint( $attributes[ 'ref' ] ) );
+                        if (
+                            $reusable_block instanceof WP_Post
+                            && 'wp_block' === $reusable_block->post_type
+                            && 'publish' === $reusable_block->post_status
+                        ) {
+                            $reusable_content                                   = parse_blocks( $reusable_block->post_content );
+                            $reusable_blocks                                    = [  ];
+                            $eb_blocks[ "reusableBlocks" ][ $reusable_block->ID ] = self::eb_block_style_recursive( $reusable_content, $reusable_blocks );
+                        }
                     } else {
                         if ( isset( $item[ "innerBlocks" ] ) && count( $item[ "innerBlocks" ] ) > 0 ) {
                             self::eb_block_style_recursive( $item[ 'innerBlocks' ], $eb_blocks );
@@ -149,17 +159,114 @@ if ( ! class_exists( 'EbStyleHandlerParseCss' ) ) {
         }
 
         /**
+         * Whether CSS stored with a post may be written to a public file as is.
+         *
+         * Block CSS (blockMeta, commonStyles, customCss) and blockId are block
+         * attributes, so anyone who can save a post controls them. Content by an
+         * author without unfiltered_html is passed through sanitize_css().
+         *
+         * @param WP_Post|null $post Post the CSS belongs to.
+         * @return bool
+         */
+        public static function is_trusted_post( $post )
+        {
+            if ( ! ( $post instanceof WP_Post ) || empty( $post->post_author ) ) {
+                return false;
+            }
+            return user_can( (int) $post->post_author, 'unfiltered_html' );
+        }
+
+        /**
+         * Remove constructs that have no place in block styles: @import (loads
+         * remote CSS), at-rules hidden behind CSS escapes, legacy script-in-CSS
+         * (expression(), behavior, -moz-binding), script URLs and anything that
+         * looks like markup.
+         *
+         * @param string $css CSS.
+         * @return string
+         */
+        public static function sanitize_css( $css )
+        {
+            if ( ! is_string( $css ) || '' === $css ) {
+                return '';
+            }
+            // No markup can be formed without "<" (or its CSS escape).
+            $css = str_replace( [ '<', '\\3c', '\\3C' ], '', $css );
+            $css = preg_replace( '/@import\b[^;]*;?/i', '', $css );
+            // An escaped at-keyword such as `@\69mport` is still @import to a browser.
+            $css = preg_replace( '/@[\w-]*\\\\[^;{]*;?/', '', $css );
+            $css = preg_replace( '/expression\s*\(/i', '(', $css );
+            $css = preg_replace( '/(?:javascript|vbscript)\s*:/i', '', $css );
+            $css = preg_replace( '/(?:-moz-binding|behavior)\s*:[^;}]*;?/i', '', $css );
+            // A function name written with CSS escapes (`u\72l(`) can hide url().
+            $css = preg_replace( '/[\w-]*\\\\[0-9a-fA-F]{1,6}\s?[\w\\\\-]*\(/', '(', $css );
+            // image-set() takes bare strings as URLs, so it cannot be checked like url().
+            $css = preg_replace( '/(?:-webkit-)?image-set\s*\(/i', '(', $css );
+            // Off-site url() lets attribute selectors send page data to another host.
+            $css = preg_replace_callback( '/url\(\s*([\'"]?)(.*?)\1\s*\)/i', [ __CLASS__, 'filter_css_url' ], $css );
+            return $css;
+        }
+
+        /**
+         * Keep a url() only when it is relative, same-site or an inline image.
+         *
+         * @param array $matches preg_replace_callback() matches.
+         * @return string
+         */
+        public static function filter_css_url( $matches )
+        {
+            $url = trim( $matches[ 2 ] );
+            // The browser decodes CSS escapes before it resolves the URL, so an
+            // escaped value cannot be checked as written. Image URLs need none.
+            if ( false !== strpos( $url, '\\' ) ) {
+                return 'none';
+            }
+            if ( '' === $url || 0 === stripos( $url, 'data:image/' ) ) {
+                return $matches[ 0 ];
+            }
+            if ( ! preg_match( '#^(?:[a-z][a-z0-9+.-]*:|//)#i', $url ) ) {
+                return $matches[ 0 ];
+            }
+            $host  = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
+            $hosts = array_map( 'strtolower', [
+                (string) wp_parse_url( home_url(), PHP_URL_HOST ),
+                (string) wp_parse_url( site_url(), PHP_URL_HOST ),
+                (string) wp_parse_url( content_url(), PHP_URL_HOST )
+             ] );
+            if ( '' !== $host && in_array( $host, $hosts, true ) && preg_match( '#^(?:https?:)?//#i', $url ) ) {
+                return $matches[ 0 ];
+            }
+            return 'none';
+        }
+
+        /**
+         * Block style keys are block IDs and are written inside CSS comments.
+         *
+         * @param string $key Block ID.
+         * @return string
+         */
+        public static function sanitize_block_key( $key )
+        {
+            return preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $key );
+        }
+
+        /**
          * Enqueue frontend css for post if have one
          * @param array
+         * @param bool $sanitize Pass untrusted CSS through sanitize_css().
          * @return string
          * @since 1.0.2
          */
-        public static function build_css( $style_object )
+        public static function build_css( $style_object, $sanitize = false )
         {
             $block_styles = $style_object;
 
             $css = '';
             foreach ( $block_styles as $block_style_key => $block_style ) {
+                $block_style_key = self::sanitize_block_key( $block_style_key );
+                if ( $sanitize && is_array( $block_style ) ) {
+                    $block_style = array_map( [ __CLASS__, 'sanitize_css' ], $block_style );
+                }
                 if ( ! empty( $block_css = (array) $block_style ) ) {
                     $css .= sprintf(
                         '/* %1$s Starts */',

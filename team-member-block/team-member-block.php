@@ -4,7 +4,7 @@
  * Plugin Name:     Team Member Block
  * Plugin URI:         https://essential-blocks.com
  * Description:     Present your team members beautifully & gain instant credibility
- * Version:         1.4.0
+ * Version:         1.4.1
  * Author:          WPDeveloper
  * Author URI:         https://wpdeveloper.net
  * License:         GPL-3.0-or-later
@@ -29,12 +29,11 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @see https://developer.wordpress.org/block-editor/tutorials/block-tutorial/applying-styles-with-stylesheets/
  */
 
-define( 'TEAM_MEMBER_BLOCK_VERSION', "1.4.0" );
+define( 'TEAM_MEMBER_BLOCK_VERSION', "1.4.1" );
 define( 'TEAM_MEMBER_BLOCK_ADMIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'TEAM_MEMBER_BLOCK_ADMIN_PATH', dirname( __FILE__ ) );
 
 require_once __DIR__ . '/includes/font-loader.php';
-require_once __DIR__ . '/includes/post-meta.php';
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/copy-settings.php';
 

@@ -118,7 +118,8 @@ if ( ! class_exists( 'EbStyleHandler' ) ) {
             unset( $recursive_response[ "reusableBlocks" ] );
             $style       = EbStyleHandlerParseCss::blocks_to_style_array( $recursive_response );
             $reusableIds = $reusable_Blocks && is_array( $reusable_Blocks ) ? array_keys( $reusable_Blocks ) : [  ];
-            if ( ! empty( $reusableIds ) ) {
+            // The site-wide list is loaded on every page, so only templates may set it.
+            if ( ! empty( $reusableIds ) && self::is_template_post( $post ) ) {
                 update_option( '_eb_reusable_block_ids', $reusableIds );
             }
             update_post_meta( $post_id, '_eb_reusable_block_ids', $reusableIds );
@@ -200,7 +201,7 @@ if ( ! class_exists( 'EbStyleHandler' ) ) {
                 // Reusable block Style Enqueues
                 $reusableIds         = get_post_meta( $post->ID, '_eb_reusable_block_ids', true );
                 $reusableIds         = ! empty( $reusableIds ) ? $reusableIds : [  ];
-                $templateReusableIds = get_option( '_eb_reusable_block_ids', [  ] );
+                $templateReusableIds = array_filter( (array) get_option( '_eb_reusable_block_ids', [  ] ), [ __CLASS__, 'is_published_reusable_block' ] );
                 $reusableIds         = array_unique( array_merge( $reusableIds, $templateReusableIds ) );
                 if ( ! empty( $reusableIds ) && is_array( $reusableIds ) ) {
                     foreach ( $reusableIds as $reusableId ) {
@@ -286,6 +287,11 @@ if ( ! class_exists( 'EbStyleHandler' ) ) {
                     return;
                 }
 
+                // CSS is written on save; a page view only fills in missing or stale files.
+                if ( $this->is_post_css_current( $post ) ) {
+                    return;
+                }
+
                 if ( $post_type === 'wp_template_part' || $post_type === 'wp_template' ) {
                     // Todo: have to do something for FSE
                     $post           = get_post( $post_id );
@@ -311,7 +317,7 @@ if ( ! class_exists( 'EbStyleHandler' ) ) {
 
                     $style       = EbStyleHandlerParseCss::blocks_to_style_array( $recursive_response );
                     $reusableIds = $reusable_Blocks && is_array( $reusable_Blocks ) ? array_keys( $reusable_Blocks ) : [  ];
-                    if ( ! empty( $reusableIds ) ) {
+                    if ( ! empty( $reusableIds ) && self::is_template_post( $post ) ) {
                         update_option( '_eb_reusable_block_ids', $reusableIds );
                     }
                     update_post_meta( $post_id, '_eb_reusable_block_ids', $reusableIds );
@@ -328,6 +334,55 @@ if ( ! class_exists( 'EbStyleHandler' ) ) {
         }
 
         /**
+         * Whether a post is a block template or template part.
+         *
+         * @param WP_Post|null $post Post.
+         * @return bool
+         */
+        private static function is_template_post( $post )
+        {
+            return isset( $post->post_type ) && in_array( $post->post_type, [ 'wp_template', 'wp_template_part' ], true );
+        }
+
+        /**
+         * Whether an ID is a published reusable block.
+         *
+         * @param mixed $id Post ID.
+         * @return bool
+         */
+        public static function is_published_reusable_block( $id )
+        {
+            $id = absint( $id );
+            return $id && 'wp_block' === get_post_type( $id ) && 'publish' === get_post_status( $id );
+        }
+
+        /**
+         * Whether the post's CSS file is newer than the post and its reusable blocks.
+         *
+         * @param WP_Post $post Post.
+         * @return bool
+         */
+        private function is_post_css_current( $post )
+        {
+            if ( ! ( $post instanceof WP_Post ) || self::is_template_post( $post ) ) {
+                return false;
+            }
+            $file = $this->eb_style_dir . $this->prefix . '-' . abs( $post->ID ) . '.min.css';
+            if ( ! file_exists( $file ) ) {
+                return false;
+            }
+            $mtime = filemtime( $file );
+            $ids   = get_post_meta( $post->ID, '_eb_reusable_block_ids', true );
+            $posts = array_merge( [ $post ], array_filter( array_map( 'get_post', array_map( 'absint', (array) $ids ) ) ) );
+            foreach ( $posts as $item ) {
+                if ( strtotime( $item->post_modified_gmt . ' UTC' ) > $mtime ) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /**
          * Ajax callback to write css in upload directory
          * @retun void
          * @since 1.0.2
@@ -340,7 +395,8 @@ if ( ! class_exists( 'EbStyleHandler' ) ) {
             }
             // Write CSS for Page/Posts
             else {
-                if ( ! empty( $css = EbStyleHandlerParseCss::build_css( $block_styles ) ) ) {
+                $sanitize = ! EbStyleHandlerParseCss::is_trusted_post( $post );
+                if ( ! empty( $css = EbStyleHandlerParseCss::build_css( $block_styles, $sanitize ) ) ) {
                     if ( ! file_exists( $this->eb_style_dir ) ) {
                         mkdir( $this->eb_style_dir );
                     }
@@ -357,10 +413,11 @@ if ( ! class_exists( 'EbStyleHandler' ) ) {
         private function write_reusable_block_css( $block_styles, $id )
         {
             if ( isset( $block_styles ) && is_array( $block_styles ) ) {
-                if ( ! empty( $css = EbStyleHandlerParseCss::build_css( $block_styles ) ) ) {
+                $sanitize = ! EbStyleHandlerParseCss::is_trusted_post( get_post( absint( $id ) ) );
+                if ( ! empty( $css = EbStyleHandlerParseCss::build_css( $block_styles, $sanitize ) ) ) {
                     $upload_dir = $this->eb_style_dir . 'reusable-blocks/';
                     if ( ! file_exists( $upload_dir ) ) {
-                        mkdir( $upload_dir, 0777, true );
+                        mkdir( $upload_dir, 0755, true );
                     }
                     file_put_contents( $upload_dir . '/' . 'eb-reusable-' . abs( $id ) . '.min.css', $css );
                 }
