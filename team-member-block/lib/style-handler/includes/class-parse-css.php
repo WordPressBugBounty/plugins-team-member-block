@@ -173,6 +173,11 @@ if ( ! class_exists( 'EbStyleHandlerParseCss' ) ) {
             if ( ! ( $post instanceof WP_Post ) || empty( $post->post_author ) ) {
                 return false;
             }
+            // On a save the editor's own rights count too: on multisite, an Editor could
+            // otherwise update a Super Admin's post and get unsanitized CSS.
+            if ( doing_action( 'save_post' ) && ! current_user_can( 'unfiltered_html' ) ) {
+                return false;
+            }
             return user_can( (int) $post->post_author, 'unfiltered_html' );
         }
 
@@ -192,18 +197,24 @@ if ( ! class_exists( 'EbStyleHandlerParseCss' ) ) {
             }
             // No markup can be formed without "<" (or its CSS escape).
             $css = str_replace( [ '<', '\\3c', '\\3C' ], '', $css );
+            // Comments can sit inside url() or split a keyword, so drop them before matching.
+            $css = preg_replace( '#/\*.*?(?:\*/|$)#s', '', $css );
             $css = preg_replace( '/@import\b[^;]*;?/i', '', $css );
             // An escaped at-keyword such as `@\69mport` is still @import to a browser.
             $css = preg_replace( '/@[\w-]*\\\\[^;{]*;?/', '', $css );
             $css = preg_replace( '/expression\s*\(/i', '(', $css );
             $css = preg_replace( '/(?:javascript|vbscript)\s*:/i', '', $css );
-            $css = preg_replace( '/(?:-moz-binding|behavior)\s*:[^;}]*;?/i', '', $css );
-            // A function name written with CSS escapes (`u\72l(`) can hide url().
-            $css = preg_replace( '/[\w-]*\\\\[0-9a-fA-F]{1,6}\s?[\w\\\\-]*\(/', '(', $css );
+            // Match the property only, so scroll-behavior and the like are kept.
+            $css = preg_replace( '/(?<![\w-])(?:-moz-binding|(?:-ms-)?behavior)\s*:[^;}]*;?/i', '', $css );
+            // A function name written with any CSS escape (`u\72l(`, `u\rl(`) can hide url().
+            $escape = '\\\\(?:[0-9a-fA-F]{1,6}\s?|[^\r\n0-9a-fA-F])';
+            $css    = preg_replace( '/[\w-]*' . $escape . '(?:[\w-]|' . $escape . ')*\(/', '(', $css );
             // image-set() takes bare strings as URLs, so it cannot be checked like url().
             $css = preg_replace( '/(?:-webkit-)?image-set\s*\(/i', '(', $css );
             // Off-site url() lets attribute selectors send page data to another host.
             $css = preg_replace_callback( '/url\(\s*([\'"]?)(.*?)\1\s*\)/i', [ __CLASS__, 'filter_css_url' ], $css );
+            // A browser closes an open function at the end of the file, so an unclosed url() still loads.
+            $css = preg_replace( '/url\(\s*[\'"]?[^)]*$/i', 'none', $css );
             return $css;
         }
 
@@ -231,8 +242,11 @@ if ( ! class_exists( 'EbStyleHandlerParseCss' ) ) {
             $hosts = array_map( 'strtolower', [
                 (string) wp_parse_url( home_url(), PHP_URL_HOST ),
                 (string) wp_parse_url( site_url(), PHP_URL_HOST ),
-                (string) wp_parse_url( content_url(), PHP_URL_HOST )
+                (string) wp_parse_url( content_url(), PHP_URL_HOST ),
+                (string) wp_parse_url( wp_get_upload_dir()[ 'baseurl' ], PHP_URL_HOST )
              ] );
+            // Sites that serve images or fonts from a CDN can add its host here.
+            $hosts = array_map( 'strtolower', (array) apply_filters( 'eb_style_handler_css_url_hosts', $hosts ) );
             if ( '' !== $host && in_array( $host, $hosts, true ) && preg_match( '#^(?:https?:)?//#i', $url ) ) {
                 return $matches[ 0 ];
             }

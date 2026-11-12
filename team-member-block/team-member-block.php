@@ -4,7 +4,7 @@
  * Plugin Name:     Team Member Block
  * Plugin URI:         https://essential-blocks.com
  * Description:     Present your team members beautifully & gain instant credibility
- * Version:         1.4.1
+ * Version:         1.4.2
  * Author:          WPDeveloper
  * Author URI:         https://wpdeveloper.net
  * License:         GPL-3.0-or-later
@@ -29,7 +29,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @see https://developer.wordpress.org/block-editor/tutorials/block-tutorial/applying-styles-with-stylesheets/
  */
 
-define( 'TEAM_MEMBER_BLOCK_VERSION', "1.4.1" );
+define( 'TEAM_MEMBER_BLOCK_VERSION', "1.4.2" );
 define( 'TEAM_MEMBER_BLOCK_ADMIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'TEAM_MEMBER_BLOCK_ADMIN_PATH', dirname( __FILE__ ) );
 
@@ -161,38 +161,77 @@ function create_block_team_member_block_init() {
     );
 
     $style_css = TEAM_MEMBER_BLOCK_ADMIN_URL . 'dist/style.css';
-    //Frontend & Editor Style
+    /**
+     * Frontend & Editor Style
+     *
+     * `dashicons` is core's icon font, which the icon picker's Dashicons tab uses
+     * (e.g. "dashicons dashicons-menu"). Nothing else loads it into the editor canvas
+     * iframe, or onto the front end for logged-out visitors, so those icons rendered
+     * as empty boxes. In the editor it is a dependency here; on the front end the
+     * render callback enqueues it only when the block's markup uses a Dashicon, as
+     * Essential Blocks does.
+     */
     wp_register_style(
         'create-block-team-member-frontend-style',
         $style_css,
-        [
-            'essential-blocks-hover-css',
-            'fontawesome-frontend-css',
-            'essential-blocks-animation'
-        ],
+        array_merge(
+            [
+                'essential-blocks-hover-css',
+                'fontawesome-frontend-css',
+                'essential-blocks-animation',
+            ],
+            is_admin() ? [ 'dashicons' ] : []
+        ),
         TEAM_MEMBER_BLOCK_VERSION
     );
 
-    if ( ! WP_Block_Type_Registry::get_instance()->is_registered( 'essential-blocks/team-member' ) ) {
-        register_block_type(
-            Team_Member_Helper::get_block_register_path( "team-member-block/team-member-block", TEAM_MEMBER_BLOCK_ADMIN_PATH ),
-            [
-                'editor_script'   => 'create-block-team-member-block-editor',
-                'editor_style'    => 'create-block-team-member-frontend-style',
-                'render_callback' => function ( $attributes, $content ) {
-                    if ( ! is_admin() ) {
-                        wp_enqueue_style( 'create-block-team-member-frontend-style' );
-                        wp_enqueue_style( 'essential-blocks-animation' );
-                        wp_enqueue_script( 'essential-blocks-eb-animation' );
-                    }
-                    return $content;
+    $eb_has_block = WP_Block_Type_Registry::get_instance()->is_registered( 'essential-blocks/team-member' );
+    $block_args   = [
+        'editor_script'   => 'create-block-team-member-block-editor',
+        'editor_style'    => 'create-block-team-member-frontend-style',
+        'render_callback' => function ( $attributes, $content ) {
+            if ( ! is_admin() ) {
+                wp_enqueue_style( 'create-block-team-member-frontend-style' );
+                wp_enqueue_style( 'essential-blocks-animation' );
+                wp_enqueue_script( 'essential-blocks-eb-animation' );
+                if ( is_string( $content ) && false !== strpos( $content, 'dashicons' ) ) {
+                    wp_enqueue_style( 'dashicons' );
                 }
-            ]
-        );
+            }
+            return $content;
+        }
+    ];
+
+    // Essential Blocks has its own version of this block under another name. Posts saved
+    // with this one still need its render callback and front-end assets, so keep it
+    // registered, but leave out the editor bundle, which can't run beside Essential Blocks.
+    if ( $eb_has_block ) {
+        unset( $block_args['editor_script'], $block_args['editor_style'] );
     }
+
+    register_block_type(
+        Team_Member_Helper::get_block_register_path( "team-member-block/team-member-block", TEAM_MEMBER_BLOCK_ADMIN_PATH ),
+        $block_args
+    );
 }
 
 add_action( 'init', 'create_block_team_member_block_init', 99 );
+
+/**
+ * Block icons are filled #6C3BFF, which almost disappears on the highlighted row of
+ * the "/" inserter, a selected List View row and the drag chip. Recolour them there,
+ * as Essential Blocks does. The handle is shared, so the stylesheet prints once when
+ * several of these plugins are active.
+ */
+function team_member_block_icon_selected_style() {
+    wp_enqueue_style(
+        'eb-block-icon-selected',
+        plugins_url( 'assets/css/block-icon-selected.css', __FILE__ ),
+        [],
+        TEAM_MEMBER_BLOCK_VERSION
+    );
+}
+add_action( 'enqueue_block_editor_assets', 'team_member_block_icon_selected_style' );
 
 /**
  * Absolute URL of the Font Awesome stylesheet this plugin ships (6.5.1).
@@ -265,3 +304,19 @@ add_action( 'init', 'team_member_block_ensure_fontawesome6', 100 );
 add_action( 'wp_enqueue_scripts', 'team_member_block_ensure_fontawesome6', 0 );
 add_action( 'admin_enqueue_scripts', 'team_member_block_ensure_fontawesome6', 0 );
 add_action( 'enqueue_block_assets', 'team_member_block_ensure_fontawesome6', 0 );
+
+/**
+ * Let Essential Blocks' animation assets win on the front end when it is active.
+ *
+ * Both plugins register these handles and the first registration wins. This
+ * plugin's loader doesn't set `window.ebAnimationLoaded`, so Essential Blocks'
+ * failsafe would reveal every animated block without playing it. Essential Blocks
+ * registers its own at priority 20 and handles the same `.eb___animated` classes.
+ */
+function team_member_block_use_essential_blocks_animation() {
+    if ( defined( 'ESSENTIAL_BLOCKS_VERSION' ) ) {
+        wp_deregister_script( 'essential-blocks-eb-animation' );
+        wp_deregister_style( 'essential-blocks-animation' );
+    }
+}
+add_action( 'wp_enqueue_scripts', 'team_member_block_use_essential_blocks_animation', 19 );

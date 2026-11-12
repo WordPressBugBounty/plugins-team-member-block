@@ -21,6 +21,12 @@ if ( ! class_exists( 'EbStyleHandler' ) ) {
          */
         public static $_block_styles = [  ];
 
+        /**
+         * Written at the top of post and reusable block CSS files. A file without
+         * it was written before block CSS was sanitized, so it is rebuilt.
+         */
+        const CSS_FILE_MARKER = '/*eb-sh:2*/';
+
         public static function init()
         {
             if ( null === self::$instance ) {
@@ -42,6 +48,7 @@ if ( ! class_exists( 'EbStyleHandler' ) ) {
 
             add_action( 'wp_enqueue_scripts', [ $this, 'enqueue_frontend_assets' ], 99 );
             add_action( 'save_post', [ $this, 'stylehandler_get_post_content' ], 10, 3 );
+            add_filter( 'eb_style_handler_block_namespaces', [ __CLASS__, 'add_block_namespaces' ] );
             add_action( 'wp', [ $this, 'stylehandler_generate_post_content' ] );
             add_action( 'rest_after_save_widget', [ $this, 'eb_save_widget_action' ], 10, 4 );
             add_action( 'eb_after_save_responsiveBreakpoints_settings', [ $this, 'generate_style_for_breakpoint_change' ], 10, 1 );
@@ -63,6 +70,59 @@ if ( ! class_exists( 'EbStyleHandler' ) ) {
                     add_filter( "taxonomy_template", [ $this, 'fse_assets_generation' ], 99, 3 );
                 }
             }, 999 );
+        }
+
+        /**
+         * Add reusable block IDs to the site-wide list used by templates.
+         *
+         * Each template adds its own IDs, so merge them, as Essential Blocks does: replacing
+         * the list dropped the reusable blocks of every other template.
+         *
+         * @param array $ids Reusable block IDs.
+         * @return void
+         */
+        private static function add_template_reusable_ids( $ids )
+        {
+            $existing = (array) get_option( '_eb_reusable_block_ids', [  ] );
+            update_option( '_eb_reusable_block_ids', array_values( array_unique( array_merge( $existing, $ids ) ) ) );
+        }
+
+        /**
+         * Tell Essential Blocks about the single-block plugins' namespaces.
+         *
+         * Essential Blocks and this class write the same eb-style-{ID}.min.css file.
+         * Since 6.4.7 it only collects blocks from these namespaces, so without this
+         * an Essential Blocks save or update drops the standalone blocks' CSS.
+         *
+         * @param array $namespaces Block name prefixes.
+         * @return array
+         */
+        public static function add_block_namespaces( $namespaces )
+        {
+            return array_merge( (array) $namespaces, [
+                'accordion-toggle/',
+                'advanced-heading/',
+                'button-group/',
+                'countdown-block/',
+                'eb-openverse-block/',
+                'flipbox/',
+                'image-comparison/',
+                'image-gallery-block/',
+                'infobox/',
+                'interactive-promo/',
+                'notice-block/',
+                'number-counter/',
+                'parallax-slider-block/',
+                'price-table-block/',
+                'progress-bars/',
+                'slider-block/',
+                'social-share-block/',
+                'table-of-contents-block/',
+                'team-member-block/',
+                'testimonial-wp-block/',
+                'toggle-content/',
+                'typing-text/',
+            ] );
         }
 
         /**
@@ -120,7 +180,7 @@ if ( ! class_exists( 'EbStyleHandler' ) ) {
             $reusableIds = $reusable_Blocks && is_array( $reusable_Blocks ) ? array_keys( $reusable_Blocks ) : [  ];
             // The site-wide list is loaded on every page, so only templates may set it.
             if ( ! empty( $reusableIds ) && self::is_template_post( $post ) ) {
-                update_option( '_eb_reusable_block_ids', $reusableIds );
+                self::add_template_reusable_ids( $reusableIds );
             }
             update_post_meta( $post_id, '_eb_reusable_block_ids', $reusableIds );
             $this->write_block_css( $style, $post ); //Write CSS file for this page
@@ -318,7 +378,7 @@ if ( ! class_exists( 'EbStyleHandler' ) ) {
                     $style       = EbStyleHandlerParseCss::blocks_to_style_array( $recursive_response );
                     $reusableIds = $reusable_Blocks && is_array( $reusable_Blocks ) ? array_keys( $reusable_Blocks ) : [  ];
                     if ( ! empty( $reusableIds ) && self::is_template_post( $post ) ) {
-                        update_option( '_eb_reusable_block_ids', $reusableIds );
+                        self::add_template_reusable_ids( $reusableIds );
                     }
                     update_post_meta( $post_id, '_eb_reusable_block_ids', $reusableIds );
                     $this->write_block_css( $style, $post ); //Write CSS file for this page
@@ -331,6 +391,18 @@ if ( ! class_exists( 'EbStyleHandler' ) ) {
                     }
                 }
             }
+        }
+
+        /**
+         * Whether a CSS file exists and was written by this version.
+         *
+         * @param string $file Path.
+         * @return bool
+         */
+        private static function has_css_marker( $file )
+        {
+            return file_exists( $file )
+                && self::CSS_FILE_MARKER === file_get_contents( $file, false, null, 0, strlen( self::CSS_FILE_MARKER ) );
         }
 
         /**
@@ -368,7 +440,7 @@ if ( ! class_exists( 'EbStyleHandler' ) ) {
                 return false;
             }
             $file = $this->eb_style_dir . $this->prefix . '-' . abs( $post->ID ) . '.min.css';
-            if ( ! file_exists( $file ) ) {
+            if ( ! self::has_css_marker( $file ) ) {
                 return false;
             }
             $mtime = filemtime( $file );
@@ -400,7 +472,7 @@ if ( ! class_exists( 'EbStyleHandler' ) ) {
                     if ( ! file_exists( $this->eb_style_dir ) ) {
                         mkdir( $this->eb_style_dir );
                     }
-                    file_put_contents( $this->eb_style_dir . $this->prefix . '-' . abs( $post->ID ) . '.min.css', $css );
+                    file_put_contents( $this->eb_style_dir . $this->prefix . '-' . abs( $post->ID ) . '.min.css', self::CSS_FILE_MARKER . $css );
                 }
             }
         }
@@ -419,7 +491,7 @@ if ( ! class_exists( 'EbStyleHandler' ) ) {
                     if ( ! file_exists( $upload_dir ) ) {
                         mkdir( $upload_dir, 0755, true );
                     }
-                    file_put_contents( $upload_dir . '/' . 'eb-reusable-' . abs( $id ) . '.min.css', $css );
+                    file_put_contents( $upload_dir . '/' . 'eb-reusable-' . abs( $id ) . '.min.css', self::CSS_FILE_MARKER . $css );
                 }
             }
         }
