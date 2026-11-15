@@ -4,7 +4,7 @@ Tags: gutenberg, block, blocks, editor, team, member, team member, profile, gute
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.4.2
+Stable tag: 1.4.3
 License: GPLv3 or later
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 
@@ -97,6 +97,11 @@ Yes, it will work with any standard WordPress theme.
 
 
 == Changelog ==
+
+= 1.4.3 - 15/11/2026 =
+* Fixed: Unsaved changes issue in editor
+* Improved: Security enhancements
+* Few minor bug fixes & improvements
 
 = 1.4.2 - 12/11/2026 =
 * Fixed: Deleted member photo coming back after save

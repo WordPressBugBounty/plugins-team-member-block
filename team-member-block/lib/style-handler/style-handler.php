@@ -22,6 +22,15 @@ if ( ! class_exists( 'EbStyleHandler' ) ) {
         public static $_block_styles = [  ];
 
         /**
+         * Whether the shared template stylesheet must be sanitized in this request.
+         * Once one untrusted template is written, it stays true: the file merges the
+         * styles of every template saved in the request.
+         *
+         * @var bool
+         */
+        private static $_sanitize_edit_site = false;
+
+        /**
          * Written at the top of post and reusable block CSS files. A file without
          * it was written before block CSS was sanitized, so it is rebuilt.
          */
@@ -463,7 +472,10 @@ if ( ! class_exists( 'EbStyleHandler' ) ) {
         {
             //Write CSS for FSE
             if ( isset( $post->post_type ) && ( $post->post_type === "wp_template_part" || $post->post_type === "wp_template" && ! empty( $block_styles ) ) ) {
-                $this->single_file_css_generator( $block_styles, $this->eb_style_dir, $this->prefix . '-edit-site.min.css' );
+                // Templates and template parts share one site-wide stylesheet, so
+                // CSS from an author without unfiltered_html is sanitized here too.
+                $sanitize = ! EbStyleHandlerParseCss::is_trusted_post( $post );
+                $this->single_file_css_generator( $block_styles, $this->eb_style_dir, $this->prefix . '-edit-site.min.css', $sanitize );
             }
             // Write CSS for Page/Posts
             else {
@@ -500,10 +512,17 @@ if ( ! class_exists( 'EbStyleHandler' ) ) {
          * Single file css generator
          * @retun void
          * @since 3.5.3
+         *
+         * @param array  $block_styles Block styles keyed by block ID.
+         * @param string $upload_dir   Directory of the file.
+         * @param string $filename     File name.
+         * @param bool   $sanitize     Pass the CSS through sanitize_css().
          */
-        private function single_file_css_generator( $block_styles, $upload_dir, $filename )
+        private function single_file_css_generator( $block_styles, $upload_dir, $filename, $sanitize = false )
         {
             $editSiteCssPath = $upload_dir . $filename;
+            self::$_sanitize_edit_site = self::$_sanitize_edit_site || $sanitize;
+            $sanitize                  = self::$_sanitize_edit_site;
             if ( file_exists( $editSiteCssPath ) ) {
                 $existingCss = file_get_contents( $editSiteCssPath );
                 $pattern     = "~\/\*(.*?)\*\/~";
@@ -527,20 +546,20 @@ if ( ! class_exists( 'EbStyleHandler' ) ) {
 
                 self::$_block_styles = array_merge( self::$_block_styles, $block_styles );
 
-                if ( ! empty( $css = EbStyleHandlerParseCss::build_css( self::$_block_styles ) ) ) {
+                if ( ! empty( $css = EbStyleHandlerParseCss::build_css( self::$_block_styles, $sanitize ) ) ) {
                     if ( ! file_exists( $upload_dir ) ) {
                         mkdir( $upload_dir );
                     }
 
-                    file_put_contents( $editSiteCssPath, $css );
+                    file_put_contents( $editSiteCssPath, self::CSS_FILE_MARKER . $css );
                 }
             } else {
-                if ( ! empty( $css = EbStyleHandlerParseCss::build_css( $block_styles ) ) ) {
+                if ( ! empty( $css = EbStyleHandlerParseCss::build_css( $block_styles, $sanitize ) ) ) {
                     if ( ! file_exists( $this->eb_style_dir ) ) {
                         mkdir( $this->eb_style_dir );
                     }
 
-                    file_put_contents( $editSiteCssPath, $css );
+                    file_put_contents( $editSiteCssPath, self::CSS_FILE_MARKER . $css );
                 }
             }
         }
